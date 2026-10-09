@@ -59,12 +59,12 @@ func CertChallenge(dyndns config.DynDNS) error {
 		Key:          accountKey,
 	}
 
-	// 3. Register the Account
-	account, err := client.Register(ctx, &acme.Account{Contact: emails}, acme.AcceptTOS)
+	// 3. Reuse the account associated with the cached key, or register a new one.
+	account, err := ensureAccount(ctx, client, emails)
 	if err != nil {
-		return fmt.Errorf("registering account: %v", err)
+		return err
 	}
-	log.Printf("Successfull registered Account URI: %s", account.URI)
+	log.Printf("ACME account URI: %s", account.URI)
 
 	// 4. Create a New Certificate Order
 	domains := AbsoluteDNSNames(dyndns.Zone, []string{dyndns.RecordName})
@@ -165,6 +165,30 @@ func CertChallenge(dyndns config.DynDNS) error {
 		return fmt.Errorf("caching crt.pem for %s: %w", domains[0], err)
 	}
 	return nil
+}
+
+func ensureAccount(ctx context.Context, client *acme.Client, emails []string) (*acme.Account, error) {
+	account, err := client.GetReg(ctx, "")
+	if err == nil {
+		return account, nil
+	}
+	if !errors.Is(err, acme.ErrNoAccount) {
+		return nil, fmt.Errorf("looking up account: %w", err)
+	}
+
+	account, err = client.Register(ctx, &acme.Account{Contact: emails}, acme.AcceptTOS)
+	if errors.Is(err, acme.ErrAccountAlreadyExists) {
+		// Another process may have registered this key after our lookup.
+		account, err = client.GetReg(ctx, "")
+		if err != nil {
+			return nil, fmt.Errorf("looking up existing account: %w", err)
+		}
+		return account, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("registering account: %w", err)
+	}
+	return account, nil
 }
 
 func loadAccountKey(ctx context.Context, cache autocert.Cache) (*rsa.PrivateKey, error) {
