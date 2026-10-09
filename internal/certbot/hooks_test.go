@@ -3,6 +3,8 @@ package certbot
 import (
 	"context"
 	"errors"
+	"log"
+	"strings"
 	"testing"
 	"time"
 
@@ -32,6 +34,28 @@ func TestWaitForTXTAfterFourMisses(t *testing.T) {
 	}
 	if resolver.attempts != 6 {
 		t.Fatalf("attempted %d queries; want 6", resolver.attempts)
+	}
+}
+
+func TestWaitForTXTLogsAttemptsWithoutToken(t *testing.T) {
+	var output strings.Builder
+	previous := log.Writer()
+	log.SetOutput(&output)
+	defer log.SetOutput(previous)
+
+	resolver := &delayedTXTResolver{visibleAt: 2}
+	err := waitForTXTWithInterval(context.Background(), time.Second, time.Millisecond, resolver, "_acme-challenge.example.org", "expected-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := output.String()
+	for _, expected := range []string{"check 1", "expected record not visible", "check 2", "expected record found"} {
+		if !strings.Contains(text, expected) {
+			t.Errorf("missing %q in logs: %s", expected, text)
+		}
+	}
+	if strings.Contains(text, "expected-token") {
+		t.Errorf("challenge token leaked into logs: %s", text)
 	}
 }
 

@@ -3,6 +3,7 @@ package certbot
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -83,18 +84,23 @@ func waitForTXTWithInterval(ctx context.Context, timeout, interval time.Duration
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	var lastErr error
+	attempt := 0
 	err := retry.Do(ctx, retry.NewConstant(interval), func(ctx context.Context) error {
+		attempt++
 		responses, err := client.Query(name, dnsmessage.TypeTXT)
 		if err != nil {
 			lastErr = fmt.Errorf("resolving challenge for %s: %w", name, err)
+			log.Printf("TXT propagation check %d for %s: resolver error (retrying)", attempt, name)
 			return retry.RetryableError(lastErr)
 		}
 		for _, response := range responses {
 			if token == strings.TrimSpace(response) {
+				log.Printf("TXT propagation check %d for %s: expected record found", attempt, name)
 				return nil
 			}
 		}
-		lastErr = fmt.Errorf("finding token for %s {%s != %v}", name, token, responses)
+		lastErr = fmt.Errorf("finding token for %s: expected value not present (%d TXT answers)", name, len(responses))
+		log.Printf("TXT propagation check %d for %s: expected record not visible (%d TXT answers; retrying)", attempt, name, len(responses))
 		return retry.RetryableError(lastErr)
 	})
 	if err != nil {
