@@ -129,7 +129,7 @@ func CertChallenge(dyndns config.DynDNS) error {
 		return fmt.Errorf("generating certificate private key: %w", err)
 	}
 
-	err = cache.Put(ctx, getFileName(domains[0], "key.pem"), x509.MarshalPKCS1PrivateKey(certKey))
+	err = cache.Put(ctx, getFileName(domains[0], "key.pem"), CertificateKeyPEM(certKey))
 	if err != nil {
 		return fmt.Errorf("caching key.pem for %s: %w", domains[0], err)
 	}
@@ -141,7 +141,7 @@ func CertChallenge(dyndns config.DynDNS) error {
 	if err != nil {
 		return fmt.Errorf("creating CSR: %w", err)
 	}
-	err = cache.Put(ctx, getFileName(domains[0], "csr.pem"), csr)
+	err = cache.Put(ctx, getFileName(domains[0], "csr.pem"), CertificateRequestPEM(csr))
 	if err != nil {
 		return fmt.Errorf("caching csr.pem for %s: %w", domains[0], err)
 	}

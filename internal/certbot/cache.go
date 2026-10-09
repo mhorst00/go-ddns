@@ -2,6 +2,8 @@ package certbot
 
 import (
 	"bytes"
+	"crypto/rsa"
+	"crypto/x509"
 	"encoding/pem"
 	"fmt"
 )
@@ -15,6 +17,19 @@ func DERChainToSingleBuffer(derChain [][]byte) ([]byte, error) {
 		}
 	}
 	return buf.Bytes(), nil
+}
+
+// CertificateKeyPEM encodes a certificate's RSA private key for a .key.pem file.
+// The ACME account.key cache entry intentionally remains DER for compatibility.
+func CertificateKeyPEM(key *rsa.PrivateKey) []byte {
+	return pem.EncodeToMemory(&pem.Block{
+		Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key),
+	})
+}
+
+// CertificateRequestPEM encodes a DER CSR for a .csr.pem file.
+func CertificateRequestPEM(csr []byte) []byte {
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csr})
 }
 
 func SingleBufferToDERChain(buf []byte) ([][]byte, error) {
