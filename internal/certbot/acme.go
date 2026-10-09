@@ -49,25 +49,9 @@ func CertChallenge(dyndns config.DynDNS) error {
 
 	emails := AddPrefixToSlice("mailto:", config.MailAddresses)
 	cache := autocert.DirCache(config.CacheDir)
-	accountKeyBytes, err := cache.Get(ctx, defaultAccountKeyName)
+	accountKey, err := loadAccountKey(ctx, cache)
 	if err != nil {
-		if errors.Is(err, autocert.ErrCacheMiss) {
-			accountKey, err := rsa.GenerateKey(rand.Reader, 2048)
-			if err != nil {
-				return fmt.Errorf("generating account.key: %w", err)
-			}
-			accountKeyBytes = x509.MarshalPKCS1PrivateKey(accountKey)
-			err = cache.Put(ctx, defaultAccountKeyName, accountKeyBytes)
-			if err != nil {
-				return fmt.Errorf("caching account.key for %s: %w", emails, err)
-			}
-		}
-		return fmt.Errorf("reading account key from cache: %w", err)
-	}
-
-	accountKey, err := x509.ParsePKCS1PrivateKey(accountKeyBytes)
-	if err != nil {
-		return fmt.Errorf("parse account key: %w", err)
+		return err
 	}
 	// 2. Initialize the ACME Client
 	client := &acme.Client{
@@ -181,4 +165,26 @@ func CertChallenge(dyndns config.DynDNS) error {
 		return fmt.Errorf("caching crt.pem for %s: %w", domains[0], err)
 	}
 	return nil
+}
+
+func loadAccountKey(ctx context.Context, cache autocert.Cache) (*rsa.PrivateKey, error) {
+	accountKeyBytes, err := cache.Get(ctx, defaultAccountKeyName)
+	if err != nil {
+		if !errors.Is(err, autocert.ErrCacheMiss) {
+			return nil, fmt.Errorf("reading account key from cache: %w", err)
+		}
+		accountKey, err := rsa.GenerateKey(rand.Reader, 2048)
+		if err != nil {
+			return nil, fmt.Errorf("generating account.key: %w", err)
+		}
+		accountKeyBytes = x509.MarshalPKCS1PrivateKey(accountKey)
+		if err := cache.Put(ctx, defaultAccountKeyName, accountKeyBytes); err != nil {
+			return nil, fmt.Errorf("caching account.key: %w", err)
+		}
+	}
+	accountKey, err := x509.ParsePKCS1PrivateKey(accountKeyBytes)
+	if err != nil {
+		return nil, fmt.Errorf("parse account key: %w", err)
+	}
+	return accountKey, nil
 }
