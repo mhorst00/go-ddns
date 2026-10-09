@@ -20,10 +20,11 @@ const (
 	certBotAllIdentifiers      = "CERTBOT_ALL_IDENTIFIERS"      // A comma-separated list of all identifiers challenged for the current certificate
 
 	// ACME configuration variables
-	acmeMailAddresses    = "ACME_MAIL_ADDRESSES"    // A comms-separated list of all mail addresses used on the account
-	acmeChallengeTimeout = "ACME_CHALLENGE_TIMEOUT" // Parsed by the time library :default: 1m
-	acmeRenewBefore      = "ACME_RENEW_BEFORE"
-	acmeCacheDir         = "ACME_CACHE_DIR"
+	acmeMailAddresses         = "ACME_MAIL_ADDRESSES"          // A comms-separated list of all mail addresses used on the account
+	acmeChallengeTimeout      = "ACME_CHALLENGE_TIMEOUT"       // Parsed by the time library :default: 1m
+	acmeTXTPropagationTimeout = "ACME_TXT_PROPAGATION_TIMEOUT" // DNS TXT polling deadline, independent of ACME_CHALLENGE_TIMEOUT; default: 5m
+	acmeRenewBefore           = "ACME_RENEW_BEFORE"
+	acmeCacheDir              = "ACME_CACHE_DIR"
 
 	// ACME configuration defaults
 	ACMETXTPrefix         = "_acme-challenge"
@@ -41,11 +42,12 @@ type CertBotParameters struct {
 	AllIdentifiers      []string
 }
 type ACMEConfig struct {
-	CacheDir      string
-	MailAddresses []string
-	ACMEURL       string
-	Timeout       time.Duration
-	RenewBefore   time.Duration
+	CacheDir              string
+	MailAddresses         []string
+	ACMEURL               string
+	Timeout               time.Duration
+	TXTPropagationTimeout time.Duration
+	RenewBefore           time.Duration
 }
 
 func ParseACMEConfig() (config ACMEConfig, err error) {
@@ -76,6 +78,13 @@ func ParseACMEConfig() (config ACMEConfig, err error) {
 		config.Timeout, err = time.ParseDuration(timeoutString)
 		if err != nil {
 			return config, fmt.Errorf("%s=%s is invalid: %w", acmeChallengeTimeout, timeoutString, err)
+		}
+	}
+	config.TXTPropagationTimeout = 5 * time.Minute
+	if value := os.Getenv(acmeTXTPropagationTimeout); value != "" {
+		config.TXTPropagationTimeout, err = time.ParseDuration(value)
+		if err != nil || config.TXTPropagationTimeout <= 0 {
+			return config, fmt.Errorf("%s=%q must be a positive duration", acmeTXTPropagationTimeout, value)
 		}
 	}
 	config.RenewBefore = 30 * 24 * time.Hour

@@ -19,6 +19,14 @@ func GetChallengeRecordName(identifier, zone string) string {
 
 func Hook(config config.DynDNS, identifier, challenge string, cleanup bool) error {
 	ctx := context.Background()
+	var propagationTimeout time.Duration
+	if !cleanup {
+		cfg, err := ParseACMEConfig()
+		if err != nil {
+			return fmt.Errorf("building ACME config: %w", err)
+		}
+		propagationTimeout = cfg.TXTPropagationTimeout
+	}
 	dohClient, err := doh.NewClient(config.DOHProvider.String(), config.DOHProvider.Endpoint())
 	if err != nil {
 		return fmt.Errorf("creating doh client for %v+: %w", config.DOHProvider, err)
@@ -58,26 +66,39 @@ func Hook(config config.DynDNS, identifier, challenge string, cleanup bool) erro
 	// Check DNS for existence
 	fullName := libdns.AbsoluteName(txtRecord.Name, config.Zone)
 
-	if err := retry.Do(ctx, retry.WithMaxRetries(
-		4, retry.WithJitter(
-			1*time.Second, retry.NewFibonacci(
-				2*time.Second),
-		),
-	), func(ctx context.Context) error {
-		responses, err := dohClient.Query(fullName, dnsmessage.TypeTXT)
+	return waitForTXT(ctx, propagationTimeout, dohClient, fullName, txtRecord.Text)
+}
+
+type txtResolver interface {
+	Query(string, dnsmessage.Type) ([]string, error)
+}
+
+// waitForTXT polls independently of the ACME order timeout, as DNS propagation
+// can take longer than ACME's network operations. The deadline includes queries.
+func waitForTXT(ctx context.Context, timeout time.Duration, client txtResolver, name, token string) error {
+	return waitForTXTWithInterval(ctx, timeout, 2*time.Second, client, name, token)
+}
+
+func waitForTXTWithInterval(ctx context.Context, timeout, interval time.Duration, client txtResolver, name, token string) error {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	var lastErr error
+	err := retry.Do(ctx, retry.NewConstant(interval), func(ctx context.Context) error {
+		responses, err := client.Query(name, dnsmessage.TypeTXT)
 		if err != nil {
-			return fmt.Errorf("resolving Challenge for %s: %w", fullName, err)
+			lastErr = fmt.Errorf("resolving challenge for %s: %w", name, err)
+			return retry.RetryableError(lastErr)
 		}
 		for _, response := range responses {
-			if txtRecord.Text == strings.Trim(response, " ") {
+			if token == strings.TrimSpace(response) {
 				return nil
 			}
 		}
-		err = fmt.Errorf("finding token for %s {%s != %v} on endpoint %s", fullName, txtRecord.Text, responses, config.DOHProvider.Endpoint())
-		fmt.Println(ctx, err)
-		return retry.RetryableError(err)
-	}); err != nil {
-		return fmt.Errorf("retry for existence: %w", err)
+		lastErr = fmt.Errorf("finding token for %s {%s != %v}", name, token, responses)
+		return retry.RetryableError(lastErr)
+	})
+	if err != nil {
+		return fmt.Errorf("retry for existence (last result: %v): %w", lastErr, err)
 	}
 	return nil
 }

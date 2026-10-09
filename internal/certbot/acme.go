@@ -104,7 +104,9 @@ func CertChallenge(dyndns config.DynDNS) error {
 		if err != nil {
 			return fmt.Errorf("generating TXT value: %w", err)
 		}
-		auth(dyndns, authz.Identifier.Value, txtValue)
+		if err := Hook(dyndns, authz.Identifier.Value, txtValue, false); err != nil {
+			return fmt.Errorf("publishing challenge: %w", err)
+		}
 
 		// 7. Tell the ACME server to verify the challenge
 		if _, err := client.Accept(ctx, dnsChal); err != nil {
